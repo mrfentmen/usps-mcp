@@ -1,24 +1,54 @@
-const USPS_API = process.env.USPS_API_URL || "https://api.usps.com"
+const USPS_API_BASE = process.env.USPS_API_URL || "https://api.usps.com"
 
 function getAuth(): Record<string, string> {
   const apiKey = process.env.USPS_API_KEY
-  const username = process.env.USPS_USERNAME
-  const password = process.env.USPS_PASSWORD
-
   if (apiKey) return { Authorization: `Bearer ${apiKey}` }
-  if (username && password) {
-    return { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}` }
-  }
   return {}
 }
 
 async function uspsFetch(path: string, init?: RequestInit): Promise<any> {
-  const res = await fetch(`${USPS_API}${path}`, {
+  const res = await fetch(`${USPS_API_BASE}${path}`, {
     ...init,
     headers: { ...getAuth(), "Content-Type": "application/json", ...(init?.headers || {}) },
   })
   if (!res.ok) throw new Error(`USPS API error: ${res.status}`)
   return res.json()
+}
+
+export async function getRate(data: {
+  destination: string
+  weight: number
+  service?: string
+}): Promise<any> {
+  return uspsFetch("/shipping/rates/v3", {
+    method: "POST",
+    body: JSON.stringify({
+      destination: { address: { postalCode: data.destination } },
+      package: { weight: { value: data.weight, unit: "LB" } },
+      service: data.service || "PRIORITY",
+    }),
+  })
+}
+
+export async function createLabel(data: {
+  from: { street: string; city: string; state: string; zip: string }
+  to: { street: string; city: string; state: string; zip: string }
+  weight: number
+  service?: string
+}): Promise<any> {
+  return uspsFetch("/shipping/labels/v3", {
+    method: "POST",
+    body: JSON.stringify({
+      from: data.from,
+      to: data.to,
+      package: { weight: { value: data.weight, unit: "LB" } },
+      service: data.service || "PRIORITY",
+    }),
+  })
+}
+
+export async function trackPackage(trackingNumber: string): Promise<any> {
+  return uspsFetch(`/tracking/v3/${encodeURIComponent(trackingNumber)}`)
 }
 
 export async function validateAddress(address: {
@@ -33,52 +63,30 @@ export async function validateAddress(address: {
   })
 }
 
-export async function trackPackage(trackingNumber: string): Promise<any> {
-  return uspsFetch(`/tracking/v3/${encodeURIComponent(trackingNumber)}`)
-}
-
-export async function trackMultiple(trackingNumbers: string[]): Promise<any> {
-  return uspsFetch("/tracking/v3/batch", {
-    method: "POST",
-    body: JSON.stringify({ trackingNumbers }),
-  })
-}
-
-export async function getRates(data: {
-  origin: string
-  destination: string
-  weight: number
-  service?: string
-}): Promise<any> {
-  return uspsFetch("/prices/v3/base-rates/search", {
-    method: "POST",
-    body: JSON.stringify(data),
-  })
-}
-
-export async function createLabel(data: {
-  from: { street: string; city: string; state: string; zip: string }
-  to: { street: string; city: string; state: string; zip: string }
-  weight: number
-  service: string
-}): Promise<any> {
-  return uspsFetch("/labels/v3/label", {
-    method: "POST",
-    body: JSON.stringify(data),
-  })
-}
-
 export async function getZipCode(address: {
-  street: string
   city: string
   state: string
 }): Promise<any> {
-  return uspsFetch(`/zipcodes/v3/city-state`, {
+  return uspsFetch(`/zipcodes/v3?city=${encodeURIComponent(address.city)}&state=${encodeURIComponent(address.state)}`)
+}
+
+export async function getAddressInfo(zip: string): Promise<any> {
+  return uspsFetch(`/zipcodes/v3/${encodeURIComponent(zip)}`)
+}
+
+export async function schedulePickup(data: {
+  address: { street: string; city: string; state: string; zip: string }
+  packageCount: number
+}): Promise<any> {
+  return uspsFetch("/pickup/v3/request", {
     method: "POST",
-    body: JSON.stringify(address),
+    body: JSON.stringify(data),
   })
 }
 
-export async function getAddressInfo(zipCode: string): Promise<any> {
-  return uspsFetch(`/zipcodes/v3/zip/${encodeURIComponent(zipCode)}`)
+export async function getServiceStandards(
+  originZip: string,
+  destZip: string,
+): Promise<any> {
+  return uspsFetch(`/servicestandards/v3/${originZip}/${destZip}`)
 }
